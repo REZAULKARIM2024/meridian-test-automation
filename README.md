@@ -18,10 +18,8 @@ along the way.
 ![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
 ![License](https://img.shields.io/badge/License-Demo%2FPortfolio-lightgrey)
 
-**A 30-second look at the app** — signing up, booking a doctor's appointment, adding a
 prescription item to the pharmacy cart, and getting matched to a clinical trial, live:
 
-![Meridian Health demo](docs/screenshots/demo.gif)
 
 ## Table of Contents
 
