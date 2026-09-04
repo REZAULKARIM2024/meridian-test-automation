@@ -18,6 +18,11 @@ along the way.
 ![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
 ![License](https://img.shields.io/badge/License-Demo%2FPortfolio-lightgrey)
 
+**A 30-second look at the app** — signing up, booking a doctor's appointment, adding a
+prescription item to the pharmacy cart, and getting matched to a clinical trial, live:
+
+![Meridian Health demo](docs/screenshots/demo.gif)
+
 prescription item to the pharmacy cart, and getting matched to a clinical trial, live:
 
 
@@ -478,3 +483,4 @@ rows either both commit or both roll back.
 Every interactive element in `MeridianHealthApp.jsx` carries a `data-testid`.
 Grep the component for `data-testid` to see the full list, or check the
 Page Object files in `pages/` â€” each documents the selectors for its screen.
+
