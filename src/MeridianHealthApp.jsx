@@ -254,7 +254,6 @@ function AuthScreen({ onAuth }) {
         </form>
       </Card>
       <p className="text-center text-xs mt-5" style={{ color: C.primaryTint }}>
-        Demo only — no real account or data is created.
       </p>
     </div>
   );
