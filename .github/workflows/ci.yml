@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_pw
+          MYSQL_DATABASE: meridian_health
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot_ci_pw"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Wait for MySQL and create the app-level user
+        run: |
+          for i in $(seq 1 20); do
+            mysqladmin ping -h 127.0.0.1 -P 3306 -uroot -proot_ci_pw --silent && break
+            sleep 2
+          done
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot_ci_pw -e "
+            CREATE USER IF NOT EXISTS 'meridian'@'%' IDENTIFIED BY 'meridian_dev_pw';
+            GRANT ALL PRIVILEGES ON meridian_health.* TO 'meridian'@'%';
+            FLUSH PRIVILEGES;"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install server dependencies
+        run: npm ci --prefix server
+
+      - name: Write server/.env for CI
+        run: |
+          cat > server/.env << 'EOF'
+          DB_HOST=127.0.0.1
+          DB_PORT=3306
+          DB_USER=meridian
+          DB_PASSWORD=meridian_dev_pw
+          DB_NAME=meridian_health
+          JWT_SECRET=ci_test_secret_not_for_production_use
+          PORT=4000
+          CORS_ORIGIN=http://localhost:5173
+          EOF
+
+      - name: Initialize database schema + seed data
+        run: npm run db:init --prefix server
+
+      - name: Install Playwright's Chromium browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the Playwright test suite
+        run: npm run test:e2e -- --project=chromium
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Upload traces/screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 14
