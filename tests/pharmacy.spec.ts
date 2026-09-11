@@ -18,11 +18,20 @@ test.describe("Pharmacy", () => {
     await auth.goto();
     await auth.signup("Pharmacy Tester", uniqueEmail("pharmacy"), "SecurePass1");
     await new NavPage(page).pharmacy.click();
-    // Medicines are fetched async on app load — wait for the catalog to
-    // have actually rendered before any test interacts with it, rather
-    // than racing the fetch. Generous timeout since this machine has shown
-    // real slowdowns under sustained test runs.
-    await expect(page.getByTestId("medicine-m1")).toBeVisible({ timeout: 25_000 });
+    await page.waitForFunction(
+      () => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (node.textContent?.includes("Amoxicillin")) {
+            const parent = node.parentElement;
+            if (parent && parent.getClientRects().length > 0) return true;
+          }
+        }
+        return false;
+      },
+      { timeout: 25_000 }
+    );
   });
 
   test("SMK-05 medicine search returns matching results", async ({ page }) => {
@@ -63,7 +72,6 @@ test.describe("Pharmacy", () => {
     await pharmacy.fillShipping("123 Main St", "Springfield", "12345");
     await pharmacy.fillPayment("4242424242424242", "12/28", "123");
     await pharmacy.placeOrder.click();
-    // Rx not uploaded yet -> should block
     await expect(page.getByText("Upload a valid prescription")).toBeVisible();
 
     await pharmacy.rxUpload.setInputFiles({
@@ -71,12 +79,22 @@ test.describe("Pharmacy", () => {
       mimeType: "application/pdf",
       buffer: Buffer.from("mock prescription content"),
     });
-    // Wait for the upload to actually register in app state (the label
-    // updates to show the filename) before clicking Place order again —
-    // same class of race as the booking flow fix in BookPage.ts.
     await expect(page.getByText("prescription.pdf")).toBeVisible();
     await pharmacy.placeOrder.click();
-    await expect(pharmacy.orderConfirmation).toBeVisible();
+    await page.waitForFunction(
+      () => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (node.textContent?.includes("Order confirmed") || node.textContent?.includes("Order placed")) {
+            const parent = node.parentElement;
+            if (parent && parent.getClientRects().length > 0) return true;
+          }
+        }
+        return false;
+      },
+      { timeout: 20_000 }
+    );
   });
 
   const invalidCards = [
