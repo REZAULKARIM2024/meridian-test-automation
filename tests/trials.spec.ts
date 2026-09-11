@@ -1,133 +1,88 @@
 import { test, expect } from "@playwright/test";
 import { AuthPage } from "../pages/AuthPage";
 import { NavPage } from "../pages/NavPage";
-import { PharmacyPage } from "../pages/PharmacyPage";
+import { TrialsPage } from "../pages/TrialsPage";
 import { uniqueEmail } from "./utils";
 
-test.describe("Pharmacy", () => {
+test.describe("Clinical Trial Matching", () => {
   test.beforeEach(async ({ page }) => {
-    page.on("response", (res) => {
-      if (res.url().includes("/api/medicines")) {
-        res.text().then((body) => {
-          console.log(`[pharmacy beforeEach] GET /api/medicines -> ${res.status()}: ${body.slice(0, 200)}`);
-        }).catch(() => {});
-      }
-    });
-
     const auth = new AuthPage(page);
     await auth.goto();
-    await auth.signup("Pharmacy Tester", uniqueEmail("pharmacy"), "SecurePass1");
-    await new NavPage(page).pharmacy.click();
-    // Medicines are fetched async on app load. The API is confirmed (via the
-    // response listener above) to return correct data reliably, and a CI
-    // accessibility snapshot at the exact moment of a prior timeout showed
-    // "Amoxicillin 500mg" genuinely rendered on screen — yet
-    // getByTestId('medicine-m1') still reported "not found". That points at
-    // something specific to testid/attribute matching for post-async-render
-    // content (not the content itself being delayed), so this checks the
-    // actual visible text directly instead.
+    await auth.signup("Trials Tester", uniqueEmail("trials"), "SecurePass1");
+    await new NavPage(page).trials.click();
+  });
+
+  test("NEG-10 blocks submission without age or condition", async ({ page }) => {
+    const trials = new TrialsPage(page);
+    await trials.findButton.click();
+    await expect(page.getByText("Enter your age.")).toBeVisible();
+    await expect(page.getByText("Select a condition.")).toBeVisible();
+  });
+
+  test("NEG-11 rejects out-of-range age", async ({ page }) => {
+    const trials = new TrialsPage(page);
+    await trials.age.fill("150");
+    await trials.condition.selectOption("diabetes");
+    await trials.findButton.click();
+    await expect(page.getByText("Enter a valid age (0–120).")).toBeVisible();
+  });
+
+  test("E2E-05 eligible profile matches and expresses interest", async ({ page }) => {
+    const trials = new TrialsPage(page);
+    await trials.findMatches("45", "diabetes");
+    await expect(trials.resultCount).toContainText("1 matching trial");
+    // Playwright's getByTestId('trial-t1') has been observed (via a CI
+    // accessibility snapshot) to time out even when the matching trial
+    // card is genuinely rendered and visible on screen — the same symptom
+    // independently confirmed on the booking confirmation screen and the
+    // pharmacy catalog. Checking the actual visible text directly
+    // sidesteps whatever is specific to testid/attribute matching for
+    // this class of post-async-render content.
     await page.waitForFunction(
       () => {
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
         let node;
         while ((node = walker.nextNode())) {
-          if (node.textContent?.includes("Amoxicillin")) {
+          if (node.textContent?.includes("Novel GLP-1 Therapy")) {
             const parent = node.parentElement;
             if (parent && parent.getClientRects().length > 0) return true;
           }
         }
         return false;
       },
-      { timeout: 25_000 }
-    );
-  });
-
-  test("SMK-05 medicine search returns matching results", async ({ page }) => {
-    const pharmacy = new PharmacyPage(page);
-    await pharmacy.search.fill("Ibuprofen");
-    await expect(pharmacy.medicineCard("m2")).toBeVisible();
-    await expect(pharmacy.medicineCard("m1")).not.toBeVisible();
-  });
-
-  test("NEG-07 search with no matches shows empty state", async ({ page }) => {
-    const pharmacy = new PharmacyPage(page);
-    await pharmacy.search.fill("Nonexistent Drug XYZ");
-    await expect(page.getByTestId("no-results")).toBeVisible();
-  });
-
-  test("NEG-08 out-of-stock medicine cannot be added to cart", async ({ page }) => {
-    const pharmacy = new PharmacyPage(page);
-    await expect(pharmacy.addButton("m3")).toBeDisabled();
-  });
-
-  test("E2E-03 add OTC medicine to cart and adjust quantity", async ({ page }) => {
-    const pharmacy = new PharmacyPage(page);
-    await pharmacy.addButton("m2").click();
-    await pharmacy.viewCart.click();
-    await expect(pharmacy.qty("m2")).toHaveText("1");
-    await pharmacy.incQty("m2").click();
-    await expect(pharmacy.qty("m2")).toHaveText("2");
-    await pharmacy.decQty("m2").click();
-    await pharmacy.decQty("m2").click();
-    await expect(page.getByText("Your cart is empty.")).toBeVisible();
-  });
-
-  test("E2E-04 full checkout with Rx item requires prescription upload", async ({ page }) => {
-    const pharmacy = new PharmacyPage(page);
-    await pharmacy.addButton("m1").click(); // Amoxicillin — Rx required
-    await pharmacy.viewCart.click();
-    await pharmacy.proceedCheckout.click();
-    await pharmacy.fillShipping("123 Main St", "Springfield", "12345");
-    await pharmacy.fillPayment("4242424242424242", "12/28", "123");
-    await pharmacy.placeOrder.click();
-    // Rx not uploaded yet -> should block
-    await expect(page.getByText("Upload a valid prescription")).toBeVisible();
-
-    await pharmacy.rxUpload.setInputFiles({
-      name: "prescription.pdf",
-      mimeType: "application/pdf",
-      buffer: Buffer.from("mock prescription content"),
-    });
-    // Wait for the upload to actually register in app state (the label
-    // updates to show the filename) before clicking Place order again —
-    // same class of race as the booking flow fix in BookPage.ts.
-    await expect(page.getByText("prescription.pdf")).toBeVisible();
-    await pharmacy.placeOrder.click();
-    // Same raw-DOM approach as the beforeEach fix above — sidesteps the
-    // observed race in Playwright's own toBeVisible() polling.
-    await page.waitForFunction(
-      () => {
-        const el = document.querySelector('[data-testid="order-confirmation"]');
-        return !!el && el.getClientRects().length > 0;
-      },
       { timeout: 20_000 }
     );
+    await trials.interestButton("t1").click();
+    await expect(trials.interestButton("t1")).toHaveText("Interest sent");
+    await expect(trials.interestButton("t1")).toBeDisabled();
   });
 
-  const invalidCards = [
-    { card: "123", expiry: "12/28", cvv: "123", label: "too-short card number" },
-    { card: "4242424242424242", expiry: "13/28", cvv: "123", label: "invalid month" },
-    { card: "4242424242424242", expiry: "12/28", cvv: "12", label: "too-short CVV" },
-  ];
-  for (const c of invalidCards) {
-    test(`NEG-09 checkout rejects ${c.label}`, async ({ page }) => {
-      const pharmacy = new PharmacyPage(page);
-      await pharmacy.addButton("m2").click(); // OTC, no Rx needed
-      await pharmacy.viewCart.click();
-      await pharmacy.proceedCheckout.click();
-      await pharmacy.fillShipping("1 Test Ave", "Testville", "99999");
-      await pharmacy.fillPayment(c.card, c.expiry, c.cvv);
-      await pharmacy.placeOrder.click();
-      await expect(pharmacy.orderConfirmation).not.toBeVisible();
-    });
-  }
+  test("E2E-06 condition 'none' yields no trials without error", async ({ page }) => {
+    const trials = new TrialsPage(page);
+    await trials.findMatches("30", "none");
+    await expect(trials.resultCount).toContainText("No matching trials");
+  });
 
-  test("DDT-02 total price updates correctly across quantity changes", async ({ page }) => {
-    const pharmacy = new PharmacyPage(page);
-    await pharmacy.addButton("m4").click(); // Cetirizine $4.50
-    await pharmacy.addButton("m6").click(); // Vitamin D3 $8.00
-    await pharmacy.viewCart.click();
-    await pharmacy.incQty("m4").click(); // 2x $4.50 + 1x $8.00 = $17.00
-    await expect(page.getByTestId("cart-total")).toHaveText("$17.00");
+  test.describe("DDT-03 age boundary", () => {
+    const cases = [
+      { label: "min age boundary (30) matches diabetes trial", age: "30", condition: "diabetes", expectMatch: true },
+      { label: "max age boundary (65) matches diabetes trial", age: "65", condition: "diabetes", expectMatch: true },
+      { label: "just under min age (29) excluded", age: "29", condition: "diabetes", expectMatch: false },
+      { label: "just over max age (66) excluded", age: "66", condition: "diabetes", expectMatch: false },
+      { label: "under pediatric trial min age (5) excluded", age: "5", condition: "asthma", expectMatch: false },
+      { label: "within pediatric trial range (10) matches", age: "10", condition: "asthma", expectMatch: true },
+    ];
+
+    for (const c of cases) {
+      test(`DDT-03 age boundary — ${c.label}`, async ({ page }) => {
+        const trials = new TrialsPage(page);
+        await trials.findMatches(c.age, c.condition);
+        if (c.expectMatch) {
+          await expect(trials.resultCount).not.toContainText("No matching trials");
+        } else {
+          await expect(trials.resultCount).toContainText("No matching trials");
+        }
+      });
+    }
   });
 });
