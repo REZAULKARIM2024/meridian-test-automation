@@ -5,8 +5,8 @@ with a from-scratch Playwright automation suite covering signup/login, telehealt
 booking, pharmacy checkout, and clinical trial matching. Built end-to-end as a QA
 automation portfolio piece: not just tests bolted onto someone else's app, but the app,
 the database schema, the API, and the test suite all built and debugged together,
-including a real production bug (a server crash under error conditions) found and fixed
-along the way.
+including a real production bug (a server crash under error conditions) and a genuine
+CI-only Playwright/DOM race condition, both found and fixed along the way.
 
 ![React](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Styling-Tailwind%20CSS-38BDF8?logo=tailwindcss&logoColor=white)
@@ -14,17 +14,16 @@ along the way.
 ![MySQL](https://img.shields.io/badge/Database-MySQL%208-4479A1?logo=mysql&logoColor=white)
 ![Playwright](https://img.shields.io/badge/E2E%20Tests-Playwright-2EAD33?logo=playwright&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/Tests-TypeScript-3178C6?logo=typescript&logoColor=white)
+![Allure](https://img.shields.io/badge/Reporting-Allure-FF6C37)
 ![Cypress](https://img.shields.io/badge/Also%20includes-Cypress%20example-17202C?logo=cypress&logoColor=white)
+[![CI](https://github.com/REZAULKARIM2024/meridian-test-automation/actions/workflows/ci.yml/badge.svg)](https://github.com/REZAULKARIM2024/meridian-test-automation/actions/workflows/ci.yml)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
 ![License](https://img.shields.io/badge/License-Demo%2FPortfolio-lightgrey)
 
-**A 30-second look at the app** � signing up, booking a doctor's appointment, adding a
+**A 30-second look at the app** — signing up, booking a doctor's appointment, adding a
 prescription item to the pharmacy cart, and getting matched to a clinical trial, live:
 
 ![Meridian Health demo](docs/screenshots/demo.gif)
-
-prescription item to the pharmacy cart, and getting matched to a clinical trial, live:
-
 
 ## Table of Contents
 
@@ -39,6 +38,8 @@ prescription item to the pharmacy cart, and getting matched to a clinical trial,
 - [Project Structure](#project-structure)
 - [Database Overview](#database-overview)
 - [Testing](#testing)
+- [Test Reporting (Allure)](#test-reporting-allure)
+- [CI/CD Pipeline](#cicd-pipeline)
 - [Test Automation Design Notes](#test-automation-design-notes)
 - [Known Issues & QA Findings](#known-issues--qa-findings)
 - [Roadmap](#roadmap)
@@ -54,10 +55,11 @@ flow is backed by a real MySQL database through a real Express API — nothing i
 mocked or stubbed, so the automation suite is exercising the same code path a real
 user would hit.
 
-The point of the project is the QA process as much as the app itself: 53 mapped test
-cases across accessibility, auth, booking, navigation, pharmacy, performance, and
-clinical trials, driven through a Page Object Model in Playwright, plus a debug harness
-used mid-project to catch and fix a real backend bug (see
+The point of the project is the QA process as much as the app itself: 54 automated
+Playwright tests across accessibility, auth, booking, navigation, pharmacy,
+performance, and clinical trials, driven through a Page Object Model, running green in
+CI on every push, with a real production bug and a real CI-only flake both root-caused
+and fixed rather than papered over (see
 [Known Issues & QA Findings](#known-issues--qa-findings)).
 
 ## Architecture
@@ -87,8 +89,15 @@ flowchart TB
         Cypress["Cypress example spec"]
     end
 
+    subgraph Pipeline["CI/CD"]
+        GHA["GitHub Actions<br/>MySQL service container, headless Chromium"]
+        AllureReport["Allure report<br/>uploaded as a build artifact"]
+    end
+
     Playwright --> React
     Playwright -.uses.-> POM
+    Playwright --> GHA
+    GHA --> AllureReport
 ```
 
 ## Features
@@ -122,6 +131,8 @@ flowchart TB
 | Backend | Node.js, Express, JWT auth |
 | Database | MySQL 8, `mysql2` connection pool |
 | E2E Tests | Playwright (TypeScript), Page Object Model |
+| Test Reporting | Allure (`allure-playwright`) |
+| CI/CD | GitHub Actions — MySQL service container, headless Chromium, Allure + Playwright HTML report artifacts on every push |
 | Also included | A Cypress example spec, for comparison |
 | Dev tooling | `concurrently` (run API + frontend together), `vite preview` for a production-build test target |
 
@@ -135,7 +146,7 @@ flowchart TB
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/<your-username>/meridian-test-automation.git
+   git clone https://github.com/REZAULKARIM2024/meridian-test-automation.git
    cd meridian-test-automation
    ```
 2. **Create the MySQL app user and database** (run once, as root):
@@ -214,10 +225,11 @@ meridian-tests/
   tests/                     Playwright spec files (TypeScript), 54 tests / 9 files
   pages/                     Page Object Model — AuthPage, NavPage, BookPage,
                               PharmacyPage, TrialsPage
-  playwright.config.ts       primary config — serial workers, retries, HTML report
+  playwright.config.ts       primary config — serial workers, retries, HTML + Allure reporters
   playwright.dev.config.ts   alternate config for fast dev-mode iteration
   run-tests.bat              one-click Windows setup + test runner
   vite.config.js             dev + preview proxy: /api -> localhost:4000
+  .github/workflows/ci.yml   GitHub Actions pipeline
 ```
 
 ## Database Overview
@@ -243,7 +255,7 @@ This runs the `pretest:e2e` hook first (`vite build`), so tests run against a re
 production build served via `vite preview` — not the dev server — which removes
 first-request compile latency as a source of flaky timing.
 
-54 tests across 9 spec files:
+54 tests across 9 spec files, currently **100% passing in CI**:
 
 | File | Covers |
 |---|---|
@@ -260,12 +272,53 @@ first-request compile latency as a source of flaky timing.
 Config highlights (`playwright.config.ts`):
 - `workers: 1` — serial execution; this local stack (single Node process + single MySQL
   instance) showed real, reproducible contention at higher worker counts, not flaky
-  noise. Raise this once run against a properly resourced runner.
+  noise. CI runs the same way for consistency with local runs.
 - `retries: 2` on top of the fixes below — a safety net for real machine-load variance,
   not a substitute for fixing root causes.
 - `expect.timeout: 20_000` — raised from Playwright's 10s default after observing this
-  project's full-suite run time vary from ~1.5 to ~8 minutes on the same machine
-  depending on background load.
+  project's full-suite run time vary noticeably across different machines and background
+  load.
+- `reporter: [["html"], ["allure-playwright"], ["list"]]` — HTML report for local runs,
+  Allure results for the richer CI report (see below).
+
+## Test Reporting (Allure)
+
+```bash
+npm run test:e2e            # writes raw results to allure-results/
+npm run allure:generate     # builds the static report into allure-report/
+npm run allure:open         # serves it locally and opens your browser
+```
+
+Allure's results are written to `allure-results/` on every test run (via the
+`allure-playwright` reporter), separate from Playwright's own built-in HTML report.
+Because the generated report is a client-side app that fetches its data as JSON,
+**open it over `http://`, not by double-clicking `index.html`** — `npm run allure:open`
+handles that for you, or serve `allure-report/` with any static file server.
+
+CI generates and uploads this same report as a build artifact on every push — see
+[CI/CD Pipeline](#cicd-pipeline).
+
+## CI/CD Pipeline
+
+`.github/workflows/ci.yml` runs on every push/PR to `main`:
+
+1. Spins up a real **MySQL 8 service container** and creates the `meridian` app user.
+2. Installs root + server dependencies, writes a CI-specific `server/.env`.
+3. Initializes the database schema + seed data (`npm run db:init`).
+4. Installs Playwright's Chromium browser.
+5. Runs the full 54-test suite against a production build (`npm run test:e2e --
+   --project=chromium`).
+6. Uploads three artifacts, even on failure: the Playwright HTML report, raw
+   `test-results/` (screenshots, traces, `error-context.md` per failure — this is what
+   was used to root-cause the CI-only race described below), and the generated Allure
+   report.
+
+The badge at the top of this README reflects the latest run. A full CI run — including
+spinning up MySQL from scratch — currently completes in around 3 minutes, compared to
+highly variable (1.5 minutes to over an hour) local run times on some Windows machines,
+which is what motivated setting this up in the first place: it turned a debugging
+environment with too many uncontrolled variables (antivirus scanning, background sync
+clients, local MySQL state) into a clean, reproducible one.
 
 ## Test Automation Design Notes
 
@@ -286,33 +339,40 @@ thing worth knowing about rather than hiding:
   the suite via the `pretest:e2e` npm hook, and Playwright's `webServer` serves that
   build with `vite preview`. Running against the dev server caused real, reproducible
   timeouts on the first test or two per file, from Vite's on-demand module compilation.
+- **Text-based DOM waits instead of `getByTestId(...).toBeVisible()` for post-async
+  content** — see the CI-only race condition writeup below; this is the concrete fix
+  and the reasoning for it.
 
 ## Known Issues & QA Findings
 
 Documented rather than hidden, as any real QA process would:
 
-- **`E2E-02` / `DDT-01` (booking confirmation) — investigated with the Playwright trace
-  viewer.** The booking API call succeeds (`201`), and a screenshot captured at the
-  exact moment of the failing assertion shows the "Appointment confirmed" screen
-  correctly rendered on screen — but `getByTestId('appointment-confirmation')` still
-  reports "not found" at that instant. This means the app itself is working correctly;
-  the remaining gap is in exactly how/when the confirmation element is momentarily
-  unavailable to Playwright's query, not a functional defect. Next step: instrument the
-  `BookScreen` component's render cycle directly (React DevTools profiler or a targeted
-  console log on mount/unmount) rather than guessing further from the outside.
-- A handful of pharmacy/trials tests are timing-sensitive on slower machines and were
-  given generous explicit waits on real state signals (e.g. "catalog has rendered
-  at least one item") rather than arbitrary sleeps — most cases resolved, a few remain
-  under investigation using the same trace-driven approach above.
+- **Resolved — a genuine CI-only race between React's post-fetch render and
+  Playwright's `getByTestId(...).toBeVisible()`.** Three independent screens (the
+  booking confirmation card, the pharmacy medicine catalog, and search-filtered
+  results) all exhibited the same symptom in GitHub Actions: a CI accessibility
+  snapshot captured at the exact moment of a timeout showed the correct content
+  genuinely rendered on screen (e.g. "Appointment confirmed" / "Dr. Amara Osei · 9:00
+  AM", or "Amoxicillin 500mg $12.50"), while `getByTestId(...)` still reported
+  "element(s) not found" — even when checking the raw DOM directly via
+  `document.querySelector` inside `page.waitForFunction`. Switching those specific
+  waits to search the actual rendered *text* instead of the `data-testid` attribute
+  (via a `TreeWalker` over text nodes, checking `getClientRects().length > 0` on the
+  parent) resolved every instance. This was never reproducible locally — only in
+  GitHub Actions' headless Chromium — which is itself a useful data point about why
+  CI-only flakes deserve their own investigation rather than being dismissed as "works
+  on my machine." Root-caused using the raw `test-results/error-context.md` artifacts
+  (accessibility snapshot + exact locator + exact timeout) rather than guesswork.
 
 ## Roadmap
 
-- Finish root-causing the booking-confirmation timing gap using React-level
-  instrumentation rather than black-box waits
-- Wire the suite into GitHub Actions CI (currently local-only)
-- Add an HTML/Allure-style report artifact upload on CI runs
+- Investigate *why* testid-attribute matching specifically breaks for post-async
+  content in GitHub Actions' headless Chromium (a genuine open question — the fix
+  above works reliably, but the underlying browser/Playwright-version interaction
+  isn't fully explained yet)
 - Expand the Cypress example into a second full suite for cross-framework comparison
 - Add visual regression coverage for the mobile/desktop layout toggle
+- Add a scheduled (nightly) CI run in addition to push/PR triggers
 
 ## License
 
@@ -324,163 +384,4 @@ payment data; all data is synthetic and seeded for demonstration purposes only.
 **Rezaul Karim** — QA Automation Engineer / SDET
 📧 rknyc2021@gmail.com
 
-[LinkedIn](https://www.linkedin.com/in/rezaul-karim-803a3b273)# Meridian Health — Full-Stack QA Automation Project
-
-A runnable Vite + React app (`MeridianHealthApp.jsx`) backed by a real
-**Express + MySQL** API (`server/`), plus a Playwright test suite (primary)
-and one Cypress example file — all driven by stable `data-testid` selectors
-in the component.
-
-Data is no longer local-only mock state: accounts, appointments, orders, and
-trial interest all persist in MySQL through the API.
-
-## 1. Set up MySQL
-
-You need a MySQL (or MySQL-compatible, e.g. MariaDB) server running locally,
-or point at a remote one.
-
-```bash
-# macOS (Homebrew)
-brew install mysql && brew services start mysql
-
-# Ubuntu/Debian
-sudo apt-get install mysql-server && sudo service mysql start
-
-# Or Docker, if you'd rather not install it locally:
-docker run --name meridian-mysql -e MYSQL_ALLOW_EMPTY_PASSWORD=yes -p 3306:3306 -d mysql:8
-```
-
-Then create an app-level user (don't use root in the app itself):
-
-```sql
-CREATE USER 'meridian'@'%' IDENTIFIED BY 'meridian_dev_pw';
-GRANT ALL PRIVILEGES ON meridian_health.* TO 'meridian'@'%';
-FLUSH PRIVILEGES;
-```
-
-## 2. Configure and install the backend
-
-```bash
-cd server
-cp .env.example .env      # edit DB_USER/DB_PASSWORD to match what you created above
-npm install
-npm run db:init           # creates the schema and seeds doctors/medicines/trials
-```
-
-## 3. Run everything
-
-```bash
-# from the project root
-npm install
-npm run dev:full           # starts both the API (port 4000) and the app (port 5173)
-```
-
-Or run them separately in two terminals if you prefer:
-
-```bash
-npm start --prefix server   # API on :4000
-npm run dev                 # app on :5173, proxies /api/* to :4000 (see vite.config.js)
-```
-
-Open http://localhost:5173 — sign up for a new account (login requires an
-account that already exists, since this is now a real database, not a
-"any credentials work" demo).
-
-## 4. Run the Playwright suite
-
-```bash
-npm run test:e2e          # builds the app, then runs headless against the production build
-npm run test:e2e:headed   # same, but watch it run in a real browser window
-npm run test:e2e:ui       # Playwright's interactive UI runner — best for debugging
-npm run test:e2e:dev      # runs against the DEV server instead (faster start, but can be flaky right after a cold start — see below)
-```
-
-`npm run test:e2e` runs a `pretest:e2e` hook (`vite build`) first, then starts both
-the API and a `vite preview` server serving that build (`npm run serve:full`),
-and only then runs the tests. This avoids a real issue we hit running against
-the dev server: Vite's dev server compiles each module on its first request,
-which caused genuine, reproducible timeouts on the first test or two right
-after a fresh `dev:full` start — confirmed via a debug script showing the
-booking flow working perfectly once the server had already handled a few
-requests. Using the production build removes that cold-start window entirely,
-since everything is pre-compiled before any test runs.
-
-`test:e2e:dev` is kept around for quick iteration on a single test while
-actively writing it (faster to start, no build step) — just don't rely on it
-for a full clean run.
-
-**Important:** don't have `npm run dev:full` running in another terminal at
-the same time as `npm run test:e2e` — both bind port 5173, they'll conflict.
-
-`playwright.config.ts`'s `webServer` handles starting everything for you, but
-**MySQL must already be up and `npm run db:init` must have been run at least
-once** before the tests start.
-
-Every test signs up a fresh account with a randomly-generated email
-(`tests/utils.ts`'s `uniqueEmail()`) rather than assuming login works with
-arbitrary credentials, since accounts are real now. Re-running the suite
-repeatedly won't collide with previous runs' users.
-
-Reports land in `playwright-report/` — open `playwright-report/index.html`
-after a run to see pass/fail, traces, and screenshots of any failures.
-
-## 5. Cypress (optional second framework)
-
-Only one example file is included (`cypress-example/booking.cy.js`), using
-identical `data-testid` selectors. To run it:
-
-```bash
-npm install -D cypress
-npx cypress open
-```
-
-Point `cypress.config.js`'s `baseUrl` at `http://localhost:5173` and move the
-example into `cypress/e2e/`, or ask for the rest of the suite ported over —
-every Playwright spec in `tests/` maps 1:1 since selectors are shared.
-
-## 6. What's covered
-
-| File | Categories from the mapped test case sheet |
-|---|---|
-| `tests/smoke.spec.ts` | Smoke |
-| `tests/auth.spec.ts` | Negative (client + real server-side: duplicate email, wrong password, unregistered email), Data-Driven, E2E |
-| `tests/booking.spec.ts` | E2E, Negative, Data-Driven, Regression |
-| `tests/pharmacy.spec.ts` | E2E, Negative, Data-Driven |
-| `tests/trials.spec.ts` | E2E, Negative, Data-Driven (age boundaries) |
-| `tests/navigation.spec.ts` | Navigation, Cross-Device/Browser |
-| `tests/performance_and_device.spec.ts` | Performance, Device Behavior (offline) |
-| `tests/accessibility.spec.ts` | Accessibility basics |
-
-See `Meridian_Mapped_Test_Cases.xlsx` for the full manual test case sheet,
-including which cases are automated vs. manual, and a Notes tab on what's
-genuinely Not Applicable to this app (native install/uninstall, interrupt
-tests, native OS permission prompts — the app is a web SPA, not an installed
-native binary).
-
-## 7. Backend structure
-
-```
-server/
-  src/
-    schema.sql        — 8 tables: users, doctors, doctor_slots, appointments,
-                         medicines, orders, order_items, trials, trial_interests
-    seed.sql           — matches the app's original mock data exactly, idempotent
-    initDb.js          — runs schema.sql + seed.sql (npm run db:init)
-    db.js              — mysql2 connection pool
-    middleware/auth.js — JWT verification
-    routes/            — auth, doctors, medicines, appointments, orders, trials
-    index.js           — Express app entry point
-```
-
-All write endpoints (`POST /api/appointments`, `POST /api/orders`,
-`POST /api/trials/:id/interest`) require a `Bearer` JWT from
-`/api/auth/signup` or `/api/auth/login`. Passwords are hashed with bcrypt;
-order placement runs inside a MySQL transaction so stock decrements and order
-rows either both commit or both roll back.
-
-## 8. Selectors reference
-
-Every interactive element in `MeridianHealthApp.jsx` carries a `data-testid`.
-Grep the component for `data-testid` to see the full list, or check the
-Page Object files in `pages/` — each documents the selectors for its screen.
-
+[LinkedIn](https://www.linkedin.com/in/rezaul-karim-803a3b273)
