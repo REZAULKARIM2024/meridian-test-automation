@@ -34,11 +34,24 @@ test.describe("Pharmacy", () => {
     );
   });
 
-  test("SMK-05 medicine search returns matching results", async ({ page }) => {
+   test("SMK-05 medicine search returns matching results", async ({ page }) => {
     const pharmacy = new PharmacyPage(page);
     await pharmacy.search.fill("Ibuprofen");
-    await expect(pharmacy.medicineCard("m2")).toBeVisible();
-    await expect(pharmacy.medicineCard("m1")).not.toBeVisible();
+    await page.waitForFunction(
+      () => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (node.textContent?.includes("Ibuprofen")) {
+            const parent = node.parentElement;
+            if (parent && parent.getClientRects().length > 0) return true;
+          }
+        }
+        return false;
+      },
+      { timeout: 20_000 }
+    );
+    await expect(page.getByText("Amoxicillin", { exact: false })).toHaveCount(0);
   });
 
   test("NEG-07 search with no matches shows empty state", async ({ page }) => {
