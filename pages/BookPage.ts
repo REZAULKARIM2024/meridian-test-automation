@@ -43,14 +43,8 @@ export class BookPage {
     await this.doctor(doctorId).click();
     const slotBtn = this.slot(slotLabel);
     await slotBtn.click();
-    // Wait for React's setSlot() state update to actually commit before
-    // clicking Book — confirmed via debug-booking.spec.ts that clicking
-    // immediately after was a real, reproducible race. aria-pressed
-    // reflects the app's real selection state.
     await expect(slotBtn).toHaveAttribute("aria-pressed", "true");
 
-    // Capture the exact API response for this click — the definitive way
-    // to see whether booking succeeded, errored, or never fired.
     const responsePromise = this.page
       .waitForResponse((res) => res.url().includes("/api/appointments"), { timeout: 12_000 })
       .catch(() => null);
@@ -66,16 +60,22 @@ export class BookPage {
       console.log("[bookFirstAvailable] No /api/appointments response observed within 12s after clicking Book.");
     }
 
-    // The confirmation Card is confirmed (via the CI trace investigation)
-    // to sometimes be genuinely present and correctly rendered even when
-    // Playwright's own getByTestId().toBeVisible() times out waiting for
-    // it — the same symptom independently confirmed on the pharmacy
-    // catalog. Checking the raw DOM directly sidesteps whatever race
-    // exists in Playwright's accessibility-tree polling.
+    // getByTestId('appointment-confirmation') has been observed (via a CI
+    // accessibility snapshot) to time out even when the confirmation card
+    // is genuinely rendered and visible — pointing at something specific
+    // to testid/attribute matching for this class of post-async-render
+    // content. Checking the actual visible text directly sidesteps that.
     await this.page.waitForFunction(
       () => {
-        const el = document.querySelector('[data-testid="appointment-confirmation"]');
-        return !!el && el.getClientRects().length > 0;
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+          if (node.textContent?.includes("Appointment confirmed")) {
+            const parent = node.parentElement;
+            if (parent && parent.getClientRects().length > 0) return true;
+          }
+        }
+        return false;
       },
       { timeout: 20_000 }
     );
