@@ -16,7 +16,11 @@ export default defineConfig({
   // A safety net on top of the root-cause fix below — real, reproducible
   // bugs will still fail every retry and show up in the report.
   retries: 2,
-  reporter: [["html", { open: "never" }]],
+  reporter: [
+    ["html", { open: "never" }],
+    ["allure-playwright", { resultsDir: "allure-results" }],
+    ["list"],
+  ],
   expect: {
     // Raised from 10s after observing this specific machine run the full
     // suite in anywhere from 1.5 to 8 minutes across different attempts —
