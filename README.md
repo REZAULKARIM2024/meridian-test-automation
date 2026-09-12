@@ -2,11 +2,13 @@
 
 A complete healthcare demo application — React frontend, Express/MySQL backend — paired
 with a from-scratch Playwright automation suite covering signup/login, telehealth
-booking, pharmacy checkout, and clinical trial matching. Built end-to-end as a QA
-automation portfolio piece: not just tests bolted onto someone else's app, but the app,
-the database schema, the API, and the test suite all built and debugged together,
-including a real production bug (a server crash under error conditions) and a genuine
-CI-only Playwright/DOM race condition, both found and fixed along the way.
+booking, pharmacy checkout, clinical trial matching, direct API/security testing, and
+app-lifecycle behavior. Built end-to-end as a QA automation portfolio piece: not just
+tests bolted onto someone else's app, but the app, the database schema, the API, and
+the test suite all built and debugged together, including a real production bug (a
+server crash under error conditions), a genuine CI-only Playwright/DOM race condition,
+and a real UX gap in how the app handles browser navigation — all found and fixed or
+documented along the way.
 
 ![React](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=white)
 ![Tailwind](https://img.shields.io/badge/Styling-Tailwind%20CSS-38BDF8?logo=tailwindcss&logoColor=white)
@@ -16,7 +18,7 @@ CI-only Playwright/DOM race condition, both found and fixed along the way.
 ![TypeScript](https://img.shields.io/badge/Tests-TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Allure](https://img.shields.io/badge/Reporting-Allure-FF6C37)
 ![Cypress](https://img.shields.io/badge/Also%20includes-Cypress%20example-17202C?logo=cypress&logoColor=white)
-[![CI](https://github.com/REZAULKARIM2024/meridian-test-automation/actions/workflows/ci.yml/badge.svg)](https://github.com/REZAULKARIM2024/meridian-test-automation/actions/workflows/ci.yml)
+[![CI](https://github.com/REZAULKARIM2024/MeridianHealth-test-automation/actions/workflows/ci.yml/badge.svg)](https://github.com/REZAULKARIM2024/MeridianHealth-test-automation/actions/workflows/ci.yml)
 ![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
 ![License](https://img.shields.io/badge/License-Demo%2FPortfolio-lightgrey)
 
@@ -35,6 +37,7 @@ prescription item to the pharmacy cart, and getting matched to a clinical trial,
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Running the Application](#running-the-application)
+- [Bulk Demo Data (Optional)](#bulk-demo-data-optional)
 - [Project Structure](#project-structure)
 - [Database Overview](#database-overview)
 - [Testing](#testing)
@@ -55,11 +58,11 @@ flow is backed by a real MySQL database through a real Express API — nothing i
 mocked or stubbed, so the automation suite is exercising the same code path a real
 user would hit.
 
-The point of the project is the QA process as much as the app itself: 54 automated
-Playwright tests across accessibility, auth, booking, navigation, pharmacy,
-performance, and clinical trials, driven through a Page Object Model, running green in
-CI on every push, with a real production bug and a real CI-only flake both root-caused
-and fixed rather than papered over (see
+The point of the project is the QA process as much as the app itself: **73 automated
+Playwright tests across 12 spec files** — UI flows, direct API/security testing, and
+app-lifecycle/browser-navigation behavior — driven through a Page Object Model,
+running green in CI on every push. A real production bug, a real CI-only flake, and a
+real UX gap were all root-caused and fixed or documented rather than papered over (see
 [Known Issues & QA Findings](#known-issues--qa-findings)).
 
 ## Architecture
@@ -76,16 +79,17 @@ flowchart TB
         Auth["JWT auth middleware"]
     end
 
-    DB[("MySQL 8<br/>users, doctors, doctor_slots, appointments,<br/>medicines, orders, order_items, trials, trial_interests")]
+    DB[("MySQL 8<br/>users, doctors, doctor_slots, appointments,<br/>medicines, orders, order_items, trials, trial_interests,<br/>medical_tests")]
 
     React -->|fetch /api/*| Routes
     Routes --> AsyncHandler
     AsyncHandler --> Auth
     AsyncHandler --> DB
 
-    subgraph Tests["Test Automation"]
-        Playwright["Playwright + TypeScript<br/>Page Object Model, 54 tests / 9 spec files"]
-        POM["pages/ — AuthPage, NavPage,<br/>BookPage, PharmacyPage, TrialsPage"]
+    subgraph Tests["Test Automation — 73 tests / 12 spec files"]
+        UI["UI flows (Playwright + POM)<br/>smoke, auth, booking, pharmacy, trials,<br/>navigation, accessibility, performance"]
+        API["Direct API/Security tests<br/>(no browser — request fixture)"]
+        Lifecycle["App Lifecycle & Interrupt tests<br/>(reload, browser Back/Forward, tab visibility)"]
         Cypress["Cypress example spec"]
     end
 
@@ -94,9 +98,8 @@ flowchart TB
         AllureReport["Allure report<br/>uploaded as a build artifact"]
     end
 
-    Playwright --> React
-    Playwright -.uses.-> POM
-    Playwright --> GHA
+    Tests --> React
+    Tests --> GHA
     GHA --> AllureReport
 ```
 
@@ -146,8 +149,8 @@ flowchart TB
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/REZAULKARIM2024/meridian-test-automation.git
-   cd meridian-test-automation
+   git clone https://github.com/REZAULKARIM2024/MeridianHealth-test-automation.git
+   cd MeridianHealth-test-automation
    ```
 2. **Create the MySQL app user and database** (run once, as root):
    ```sql
@@ -203,6 +206,34 @@ npm run dev:full
 # open http://localhost:5173
 ```
 
+## Bulk Demo Data (Optional)
+
+For a richer demo, load a large synthetic dataset on top of the base seed:
+
+```bash
+mysql -u meridian -pmeridian_dev_pw meridian_health < server/src/bulk_seed.sql
+mysql -u meridian -pmeridian_dev_pw meridian_health < server/src/more_medicines.sql
+mysql -u meridian -pmeridian_dev_pw meridian_health < server/src/medical_tests.sql
+```
+
+This adds:
+
+| Data | Count | Notes |
+|---|---|---|
+| Patients (`users`) | 500 | Unique names/emails (`patient1@meridianmail.test` … `patient500@…`); all share the password `Demo1234!` |
+| Doctors | 300 | Across 25 medical specialties, 4 time slots each (1,200 slots total) |
+| Medicines | 1,500 | Realistic generic-drug-name/strength/form combinations, all unique, ~1/3 Rx-required |
+| Medical tests | 200 | New `medical_tests` table — diagnostic/lab tests across Blood, Imaging, Cardiac, Urine/Stool, Pulmonary, and Other categories |
+
+All three files use `INSERT IGNORE`, so they're safe to re-run without creating
+duplicates. Every row was validated by actually running the SQL against a real MySQL
+instance and checking row counts/uniqueness before being committed — not just
+generated and assumed correct.
+
+**Note:** `medical_tests` is currently data-only — there's no app UI or API route for
+it yet (no "Tests" tab, no booking flow). It's ready for that feature to be built on
+top of it.
+
 ## Project Structure
 
 ```
@@ -215,6 +246,9 @@ meridian-tests/
     src/
       schema.sql            8 tables (see Database Overview)
       seed.sql               idempotent demo data — 4 doctors, 6 medicines, 4 trials
+      bulk_seed.sql          500 patients, 300 doctors, 500 medicines (optional)
+      more_medicines.sql     +1000 more medicines, bringing the catalog to 1500 (optional)
+      medical_tests.sql      new medical_tests table + 200 diagnostic tests (optional)
       initDb.js               `npm run db:init` entry point
       db.js                  mysql2 pool
       asyncHandler.js        wraps every route so DB/API errors can't crash the server
@@ -222,7 +256,7 @@ meridian-tests/
       routes/                auth, doctors, medicines, appointments, orders, trials
       index.js               Express app, listens on :4000
     .env.example
-  tests/                     Playwright spec files (TypeScript), 54 tests / 9 files
+  tests/                     Playwright spec files (TypeScript), 73 tests / 12 files
   pages/                     Page Object Model — AuthPage, NavPage, BookPage,
                               PharmacyPage, TrialsPage
   playwright.config.ts       primary config — serial workers, retries, HTML + Allure reporters
@@ -244,6 +278,7 @@ meridian-tests/
 | `orders` / `order_items` | Pharmacy checkout, order line items |
 | `trials` | Clinical trials with eligibility age range + condition |
 | `trial_interests` | User interest expressions, unique per (user, trial) |
+| `medical_tests` | Diagnostic/lab test catalog (data-only — see [Bulk Demo Data](#bulk-demo-data-optional)) |
 
 ## Testing
 
@@ -255,7 +290,7 @@ This runs the `pretest:e2e` hook first (`vite build`), so tests run against a re
 production build served via `vite preview` — not the dev server — which removes
 first-request compile latency as a source of flaky timing.
 
-54 tests across 9 spec files, currently **100% passing in CI**:
+**73 tests across 12 spec files, currently 100% passing in CI:**
 
 | File | Covers |
 |---|---|
@@ -267,6 +302,9 @@ first-request compile latency as a source of flaky timing.
 | `navigation.spec.ts` | Tab routing, back navigation, mobile/desktop layouts |
 | `accessibility.spec.ts` | Keyboard navigation, accessible names, focus visibility |
 | `performance_and_device.spec.ts` | Load time budget, network-drop tolerance, data reset |
+| `api.spec.ts` | Direct HTTP tests against the real backend — no browser (signup, login, doctors, medicines, booking, trial matching) |
+| `security.spec.ts` | Unauthorized access, tampered/forged JWTs, SQL-injection and XSS safety |
+| `lifecycle.spec.ts` | Session behavior across a reload; browser Back/Forward and tab-visibility "interrupt" tests |
 | `debug-booking.spec.ts` | A diagnostic spec (network/console dump) used during development to isolate a timing issue in the booking flow — kept in the suite as a template for future debugging |
 
 Config highlights (`playwright.config.ts`):
@@ -306,15 +344,15 @@ CI generates and uploads this same report as a build artifact on every push — 
 2. Installs root + server dependencies, writes a CI-specific `server/.env`.
 3. Initializes the database schema + seed data (`npm run db:init`).
 4. Installs Playwright's Chromium browser.
-5. Runs the full 54-test suite against a production build (`npm run test:e2e --
+5. Runs the full 73-test suite against a production build (`npm run test:e2e --
    --project=chromium`).
 6. Uploads three artifacts, even on failure: the Playwright HTML report, raw
    `test-results/` (screenshots, traces, `error-context.md` per failure — this is what
-   was used to root-cause the CI-only race described below), and the generated Allure
-   report.
+   was used to root-cause the CI-only race and the browser-history finding described
+   below), and the generated Allure report.
 
 The badge at the top of this README reflects the latest run. A full CI run — including
-spinning up MySQL from scratch — currently completes in around 3 minutes, compared to
+spinning up MySQL from scratch — currently completes in 2–3 minutes, compared to
 highly variable (1.5 minutes to over an hour) local run times on some Windows machines,
 which is what motivated setting this up in the first place: it turned a debugging
 environment with too many uncontrolled variables (antivirus scanning, background sync
@@ -342,6 +380,10 @@ thing worth knowing about rather than hiding:
 - **Text-based DOM waits instead of `getByTestId(...).toBeVisible()` for post-async
   content** — see the CI-only race condition writeup below; this is the concrete fix
   and the reasoning for it.
+- **Direct HTTP tests via Playwright's `request` fixture** (`api.spec.ts`,
+  `security.spec.ts`) — a UI test can pass because the app quietly hides a bad API
+  response; asserting on raw status codes and JSON shape directly catches things a
+  browser-driven test wouldn't.
 
 ## Known Issues & QA Findings
 
@@ -363,13 +405,29 @@ Documented rather than hidden, as any real QA process would:
   CI-only flakes deserve their own investigation rather than being dismissed as "works
   on my machine." Root-caused using the raw `test-results/error-context.md` artifacts
   (accessibility snapshot + exact locator + exact timeout) rather than guesswork.
+- **Documented — the app doesn't push browser history state (`INT-01`,
+  `tests/lifecycle.spec.ts`).** Since the app manages all navigation via React state
+  rather than `pushState`/client-side routing, the browser's history has exactly one
+  entry after the initial load. Pressing the browser's **Back** button mid-flow doesn't
+  return to a "previous screen" within the app — a CI screenshot captured at the
+  moment of the original (incorrect) assertion showed a completely blank page,
+  confirming the whole React app had unmounted. Pressing **Forward** afterward
+  triggers a fresh reload rather than restoring state, landing back on the login
+  screen (consistent with the no-session-persistence finding in `LFC-01`). This is a
+  real, minor UX gap worth fixing in the app itself (e.g. adopting a router that
+  reflects screens in the URL) — the test now documents the actual behavior rather
+  than asserting the originally-assumed, incorrect one.
 
 ## Roadmap
 
+- Fix the browser-history gap above by adopting client-side routing, so Back/Forward
+  behave the way users expect instead of unmounting the app
 - Investigate *why* testid-attribute matching specifically breaks for post-async
   content in GitHub Actions' headless Chromium (a genuine open question — the fix
   above works reliably, but the underlying browser/Playwright-version interaction
   isn't fully explained yet)
+- Build an actual UI/API feature on top of the new `medical_tests` data (a "Tests" tab,
+  booking flow, and corresponding Playwright coverage)
 - Expand the Cypress example into a second full suite for cross-framework comparison
 - Add visual regression coverage for the mobile/desktop layout toggle
 - Add a scheduled (nightly) CI run in addition to push/PR triggers
